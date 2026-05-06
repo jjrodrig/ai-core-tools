@@ -27,6 +27,7 @@ from schemas.import_schemas import (
 from .auth_utils import get_current_user_oauth
 from routers.controls.role_authorization import require_min_role, AppRole
 from utils.secret_utils import mask_api_key, is_masked_key, normalize_credential_map
+from config import SANDBOX_ALLOWED_PROVIDERS
 
 # Import nested routers for app-specific resources
 from .agents import agents_router
@@ -58,6 +59,23 @@ DEFAULT_MAX_FILE_SIZE_MB = 0
 APP_NOT_FOUND_MSG = "App not found"
 
 # ==================== STATIC ROUTES (must come before dynamic routes) ====================
+
+
+@apps_router.get(
+    "/sandbox-config",
+    summary="Get sandbox configuration for app settings UI",
+    tags=["Apps"],
+)
+async def get_sandbox_config(
+    auth_context: Annotated[AuthContext, Depends(get_current_user_oauth)],
+):
+    """Return the allowed sandbox providers so the UI can populate the selector."""
+    from config import SANDBOX_DEFAULT_PROVIDER
+    return {
+        "allowed_providers": SANDBOX_ALLOWED_PROVIDERS,
+        "default_provider": SANDBOX_DEFAULT_PROVIDER,
+    }
+
 
 @apps_router.post(
     "/preview-import",
@@ -478,6 +496,7 @@ async def get_app(
         agent_cors_origins=app.agent_cors_origins,
         enable_openai_api=app.enable_openai_api,
         onboarding_dismissed=app.onboarding_dismissed or False,
+        sandbox_provider=app.sandbox_provider,
         **counts
     )
 
@@ -596,6 +615,13 @@ async def update_app(
     if is_masked_key(langsmith_key):
         langsmith_key = app.langsmith_api_key
 
+    # Validate sandbox_provider against system-allowed list (None = inherit is always valid)
+    if app_data.sandbox_provider and app_data.sandbox_provider not in SANDBOX_ALLOWED_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"sandbox_provider '{app_data.sandbox_provider}' is not in the allowed list: {SANDBOX_ALLOWED_PROVIDERS}"
+        )
+
     update_dict = {
         'app_id': app_id,
         'name': app_data.name,
@@ -603,7 +629,8 @@ async def update_app(
         'agent_rate_limit': app_data.agent_rate_limit or DEFAULT_AGENT_RATE_LIMIT,
         'max_file_size_mb': app_data.max_file_size_mb or DEFAULT_MAX_FILE_SIZE_MB,
         'agent_cors_origins': app_data.agent_cors_origins,
-        'enable_openai_api': app_data.enable_openai_api
+        'enable_openai_api': app_data.enable_openai_api,
+        'sandbox_provider': app_data.sandbox_provider,
     }
     
     # Update app using service
@@ -628,7 +655,8 @@ async def update_app(
         agent_rate_limit=updated_app.agent_rate_limit or DEFAULT_AGENT_RATE_LIMIT,
         max_file_size_mb=updated_app.max_file_size_mb or DEFAULT_MAX_FILE_SIZE_MB,
         agent_cors_origins=updated_app.agent_cors_origins,
-        enable_openai_api=updated_app.enable_openai_api
+        enable_openai_api=updated_app.enable_openai_api,
+        sandbox_provider=updated_app.sandbox_provider,
     )
 
 
